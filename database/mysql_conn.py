@@ -1,0 +1,50 @@
+"""
+MySQL 数据库连接模块
+"""
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, declarative_base
+import pymysql
+import config
+
+# 创建数据库引擎
+try:
+    engine = create_engine(config.DATABASE_URL, pool_pre_ping=True, echo=False)
+    # 会话工厂
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    # ORM 基类
+    Base = declarative_base()
+except Exception as e:
+    engine = None
+    SessionLocal = None
+    Base = declarative_base()
+    print(f"数据库连接失败: {e}")
+
+
+def get_db():
+    """获取数据库会话（生成器，用于依赖注入）"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def test_connection():
+    """测试数据库连接是否正常"""
+    if engine is None:
+        return False, "数据库引擎未初始化"
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True, "数据库连接成功"
+    except Exception as e:
+        return False, f"数据库连接失败: {e}"
+
+
+def init_db():
+    """初始化数据库表（创建所有 ORM 模型对应的表）"""
+    if engine is None:
+        print("数据库引擎未初始化，跳过建表")
+        return
+    Base.metadata.create_all(bind=engine)
+    print("数据库表初始化完成")
