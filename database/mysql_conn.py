@@ -1,7 +1,7 @@
 """
 MySQL 数据库连接模块
 """
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, Column, Integer, String, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
 import pymysql
 import config
@@ -9,15 +9,26 @@ import config
 # 创建数据库引擎
 try:
     engine = create_engine(config.DATABASE_URL, pool_pre_ping=True, echo=False)
-    # 会话工厂
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    # ORM 基类
     Base = declarative_base()
 except Exception as e:
     engine = None
     SessionLocal = None
     Base = declarative_base()
     print(f"数据库连接失败: {e}")
+
+
+# ==================== ORM 模型（统一定义，禁止重复） ====================
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, nullable=False, comment="用户名")
+    password = Column(String(100), nullable=False, comment="密码(SHA256)")
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), comment="注册时间")
+
+
+# ==================== 工具函数 ====================
 
 
 def get_db():

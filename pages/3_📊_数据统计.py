@@ -14,6 +14,11 @@ st.set_page_config(
     layout="wide",
 )
 
+# 登录守卫
+if not st.session_state.get("logged_in"):
+    st.switch_page("app.py")
+    st.stop()
+
 st.title("📊 数据统计")
 
 # 侧边栏

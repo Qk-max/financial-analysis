@@ -5,7 +5,7 @@
 DB_HOST = "localhost"
 DB_PORT = 3306
 DB_USER = "root"
-DB_PASSWORD = "your_password"
+DB_PASSWORD = "123456"
 DB_NAME = "financial_analysis"
 
 # 数据库连接URL

@@ -1,131 +1,189 @@
 """
-app.py - 金融数据分析系统入口（首页）
+app.py - 金融数据分析系统入口（登录页）
 
-运行方式:
-    pip install -r requirements.txt
-    streamlit run app.py
+必须先登录才能进入系统。密码使用 SHA256 哈希存储。
 """
 import streamlit as st
+from database.mysql_conn import SessionLocal, test_connection, init_db, User
+from utils.helpers import hash_password
 
 # ==================== 页面配置 ====================
 st.set_page_config(
-    page_title="金融数据分析系统",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="金融数据分析系统 - 登录",
+    page_icon="🔐",
+    layout="centered",
+    initial_sidebar_state="collapsed",
 )
 
-# ==================== 侧边栏导航 ====================
+# ==================== 已登录 → 跳转首页 ====================
+if st.session_state.get("logged_in"):
+    st.switch_page("pages/1_🏠_首页.py")
 
-with st.sidebar:
-    st.title("📊 金融数据分析")
+# ==================== 数据库初始化 ====================
+try:
+    init_db()
+except Exception:
+    pass
 
-    st.markdown("---")
-    st.markdown("### 📂 功能导航")
-    st.markdown(
-        """
-    - 🏠 **首页** — 系统概览
-    - 📈 **股票分析** — K线/均线/RSI
-    - 📊 **数据统计** — 收益率/波动率
-    - 👤 **用户模块** — 登录/注册
-    - 🎮 **游戏中心** — 预留
-    """
-    )
+db_ok, db_msg = test_connection()
 
-    st.markdown("---")
-    st.markdown("### 🔧 快速设置")
-    st.markdown("请在 `config.py` 中配置 MySQL 连接信息")
-
-    st.markdown("---")
-    st.caption("期末课设项目 | Powered by Streamlit")
-
-# ==================== 首页主体内容 ====================
-
-st.title("🏠 金融数据分析系统")
-
-st.markdown("---")
-
-# 三列指标卡片
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric(
-        label="📈 股票分析",
-        value="实时行情",
-        delta="K线图 / 均线 / RSI",
-    )
-
-with col2:
-    st.metric(
-        label="📊 数据统计",
-        value="量化分析",
-        delta="收益率 / 波动率",
-    )
-
-with col3:
-    st.metric(
-        label="👤 用户管理",
-        value="注册登录",
-        delta="MySQL 持久化",
-    )
-
-st.markdown("---")
-
-# 系统简介
-st.subheader("📋 系统简介")
+# ==================== 页面样式 ====================
 st.markdown(
     """
-本系统是一个基于 **Python + Streamlit** 的金融数据分析平台，主要功能包括：
-
-- **股票分析**：输入 A 股股票代码，获取实时行情数据，绘制 K 线图、均线、RSI 指标
-- **数据统计**：提供收益率分析、波动率分析、最大涨跌幅统计等量化指标
-- **用户模块**：支持用户注册与登录，数据持久化存储到 MySQL 数据库
-- **游戏中心**：娱乐模块（预留）
-
-> 📡 数据来源：**AkShare** 金融数据接口
-> 🗄️ 数据存储：**MySQL** + **SQLAlchemy** ORM
-> 📈 图表引擎：**Plotly**
-"""
+<style>
+    .login-header { text-align:center; padding:20px 0 5px 0; }
+    .login-header h1 { font-size:2.2rem; margin-bottom:0; }
+    .login-header p { color:#888; font-size:0.95rem; }
+    .stButton button { height:2.8rem; font-size:1rem; }
+    div[data-testid="stForm"] { border:1px solid #e0e0e0; border-radius:12px; padding:20px; }
+    .db-status-badge { text-align:center; font-size:0.8rem; }
+</style>
+""",
+    unsafe_allow_html=True,
 )
+
+# ==================== 标题 ====================
+st.markdown(
+    """
+<div class="login-header">
+    <h1>📊 金融数据分析系统</h1>
+    <p>期末课设项目 · 请先登录以继续</p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# 数据库状态指示
+if db_ok:
+    st.markdown(
+        '<div class="db-status-badge">🟢 数据库已连接</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        f'<div class="db-status-badge">🔴 数据库未连接: {db_msg}</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
-# 技术架构
-st.subheader("🛠️ 技术栈")
+# ==================== 登录 / 注册 Tab ====================
+tab_login, tab_register = st.tabs(["🔐 登录", "📝 注册"])
 
-tech_col1, tech_col2, tech_col3 = st.columns(3)
+# ---------- 登录 ----------
+with tab_login:
+    col_a, col_b, col_c = st.columns([1, 2.5, 1])
+    with col_b:
+        with st.form("login_form", border=True):
+            st.markdown("#### 用户登录")
+            username = st.text_input(
+                "用户名", placeholder="请输入用户名", key="login_user"
+            )
+            password = st.text_input(
+                "密码", type="password", placeholder="请输入密码", key="login_pass"
+            )
 
-with tech_col1:
-    st.markdown(
-        """
-    **核心框架**
-    - Python 3.10+
-    - Streamlit (Web UI)
-    - Pandas (数据处理)
-    - Plotly (可视化)
-    """
-    )
+            submitted = st.form_submit_button(
+                "登 录", type="primary", use_container_width=True
+            )
 
-with tech_col2:
-    st.markdown(
-        """
-    **数据与存储**
-    - AkShare (金融数据)
-    - MySQL (关系数据库)
-    - PyMySQL (驱动)
-    - SQLAlchemy (ORM)
-    """
-    )
+            if submitted:
+                if not db_ok:
+                    st.error("数据库未连接，请确保 MySQL 已启动")
+                elif not username or not password:
+                    st.warning("请填写用户名和密码")
+                else:
+                    with st.spinner("正在登录..."):
+                        db = SessionLocal()
+                        try:
+                            hashed = hash_password(password)
+                            user = (
+                                db.query(User)
+                                .filter(
+                                    User.username == username,
+                                    User.password == hashed,
+                                )
+                                .first()
+                            )
+                            if user:
+                                st.session_state["logged_in"] = True
+                                st.session_state["username"] = username
+                                st.session_state["user_id"] = user.id
+                                st.success("登录成功，正在跳转...")
+                                st.switch_page("pages/1_🏠_首页.py")
+                            else:
+                                st.error("用户名或密码错误")
+                        except Exception as e:
+                            st.error(f"登录异常: {e}")
+                        finally:
+                            db.close()
 
-with tech_col3:
-    st.markdown(
-        """
-    **项目结构**
-    - `app.py` 主入口
-    - `pages/` 多页面模块
-    - `database/` 数据库层
-    - `utils/` 工具函数
-    """
-    )
+# ---------- 注册 ----------
+with tab_register:
+    col_a, col_b, col_c = st.columns([1, 2.5, 1])
+    with col_b:
+        with st.form("register_form", border=True):
+            st.markdown("#### 创建账号")
+            reg_user = st.text_input(
+                "用户名", placeholder="2-20个字符", key="reg_user"
+            )
+            reg_pass = st.text_input(
+                "密码", type="password", placeholder="至少3个字符", key="reg_pass"
+            )
+            reg_pass2 = st.text_input(
+                "确认密码", type="password", placeholder="请再次输入密码", key="reg_pass2"
+            )
 
-st.info("👈 请从左侧边栏选择功能模块开始使用")
+            submitted_reg = st.form_submit_button(
+                "注 册", type="primary", use_container_width=True
+            )
+
+            if submitted_reg:
+                if not db_ok:
+                    st.error("数据库未连接，请确保 MySQL 已启动")
+                elif not reg_user or not reg_pass:
+                    st.warning("请填写完整信息")
+                elif len(reg_user) < 2 or len(reg_user) > 20:
+                    st.warning("用户名需 2-20 个字符")
+                elif " " in reg_user:
+                    st.warning("用户名不能包含空格")
+                elif len(reg_pass) < 3:
+                    st.warning("密码至少 3 个字符")
+                elif reg_pass != reg_pass2:
+                    st.warning("两次密码不一致")
+                else:
+                    with st.spinner("正在注册..."):
+                        db = SessionLocal()
+                        try:
+                            exist = (
+                                db.query(User)
+                                .filter(User.username == reg_user)
+                                .first()
+                            )
+                            if exist:
+                                st.error("用户名已存在")
+                            else:
+                                user = User(
+                                    username=reg_user,
+                                    password=hash_password(reg_pass),
+                                )
+                                db.add(user)
+                                db.commit()
+                                db.refresh(user)
+                                st.session_state["logged_in"] = True
+                                st.session_state["username"] = reg_user
+                                st.session_state["user_id"] = user.id
+                                st.success("注册成功，正在跳转...")
+                                st.switch_page("pages/1_🏠_首页.py")
+                        except Exception as e:
+                            db.rollback()
+                            st.error(f"注册失败: {e}")
+                        finally:
+                            db.close()
+
+# ==================== 底部 ====================
+st.markdown("---")
+st.caption(
+    "提示：请确保 MySQL 已启动，并在 config.py 中配置正确的连接信息。"
+    "密码采用 SHA256 加密存储。"
+)

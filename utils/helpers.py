@@ -120,3 +120,15 @@ def calc_rsi(df, period=14):
     rs = gain / loss
     df["RSI"] = 100 - (100 / (1 + rs))
     return df
+
+
+# ==================== 密码哈希工具 ====================
+import hashlib
+
+SALT = "fin_analysis_2024"
+
+
+def hash_password(password: str) -> str:
+    """对密码进行 SHA256 哈希"""
+    return hashlib.sha256((password + SALT).encode("utf-8")).hexdigest()
+
