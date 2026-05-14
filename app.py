@@ -67,11 +67,26 @@ else:
 
 st.markdown("---")
 
-# ==================== 登录 / 注册 Tab ====================
-tab_login, tab_register = st.tabs(["🔐 登录", "📝 注册"])
+# ==================== 登录 / 注册 切换 ====================
+# 注册成功后自动跳转到登录页
+if st.session_state.get("reg_success"):
+    st.session_state["auth_mode"] = "🔐 登录"
+    st.success("注册成功！请登录。")
+    st.session_state["reg_success"] = False
+
+if "auth_mode" not in st.session_state:
+    st.session_state["auth_mode"] = "🔐 登录"
+
+auth_mode = st.radio(
+    "选择操作",
+    ["🔐 登录", "📝 注册"],
+    horizontal=True,
+    key="auth_mode",
+    label_visibility="collapsed",
+)
 
 # ---------- 登录 ----------
-with tab_login:
+if auth_mode == "🔐 登录":
     col_a, col_b, col_c = st.columns([1, 2.5, 1])
     with col_b:
         with st.form("login_form", border=True):
@@ -119,7 +134,7 @@ with tab_login:
                             db.close()
 
 # ---------- 注册 ----------
-with tab_register:
+elif auth_mode == "📝 注册":
     col_a, col_b, col_c = st.columns([1, 2.5, 1])
     with col_b:
         with st.form("register_form", border=True):
@@ -169,12 +184,9 @@ with tab_register:
                                 )
                                 db.add(user)
                                 db.commit()
-                                db.refresh(user)
-                                st.session_state["logged_in"] = True
-                                st.session_state["username"] = reg_user
-                                st.session_state["user_id"] = user.id
-                                st.success("注册成功，正在跳转...")
-                                st.switch_page("pages/1_🏠_首页.py")
+                                st.session_state["reg_success"] = True
+                                st.success("注册成功！请切换到登录页签进行登录。")
+                                st.rerun()
                         except Exception as e:
                             db.rollback()
                             st.error(f"注册失败: {e}")

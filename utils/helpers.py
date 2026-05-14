@@ -27,41 +27,78 @@ except Exception:
 # ==================== SSL 配置结束 ====================
 
 
+# 内存缓存股票代码→名称映射
+_stock_name_cache: dict = {}
+
+
+def get_stock_name(stock_code: str) -> str:
+    """根据股票代码获取中文名称（带缓存，首次调用拉取全量列表）"""
+    if stock_code in _stock_name_cache:
+        return _stock_name_cache[stock_code]
+
+    # 首次调用：批量拉取所有A股代码→名称映射
+    if not _stock_name_cache:
+        try:
+            import akshare as ak
+            df = ak.stock_zh_a_spot()
+            if df is not None and not df.empty:
+                code_col = df.columns[0]
+                name_col = df.columns[1]
+                for _, row in df.iterrows():
+                    full_code = str(row[code_col])
+                    name = str(row[name_col])
+                    if not full_code or not name:
+                        continue
+                    _stock_name_cache[full_code] = name
+                    # 也存无前缀版本（sz000001 → 000001）
+                    if len(full_code) == 8:
+                        _stock_name_cache[full_code[2:]] = name
+        except Exception:
+            pass
+
+    return _stock_name_cache.get(stock_code, stock_code)
+
+
 def fetch_stock_hist(stock_code, period="daily", start_date="", end_date="", max_retries=3):
     """
-    带重试和回退的股票数据获取
+    股票历史数据获取
 
-    优先使用东方财富源（数据字段更全），失败则回退到腾讯源。
+    优先使用新浪财经源（数据字段更全），失败则回退到腾讯源。
     返回 (DataFrame, source_name)
     """
     import akshare as ak
 
-    # 判断市场前缀（腾讯源需要）
+    # 判断市场前缀
     if stock_code.startswith("6") or stock_code.startswith("9"):
-        tx_symbol = f"sh{stock_code}"
+        symbol = f"sh{stock_code}"
     else:
-        tx_symbol = f"sz{stock_code}"
+        symbol = f"sz{stock_code}"
 
-    # ---- 源1: 东方财富（字段全：日期/开/高/低/收/成交量/成交额） ----
+    # ---- 源1: 新浪财经（字段全：日期/开/高/低/收/成交量/成交额） ----
     last_error = None
     for attempt in range(max_retries):
         try:
-            df = ak.stock_zh_a_hist(
-                symbol=stock_code,
-                period=period,
+            df = ak.stock_zh_a_daily(
+                symbol=symbol,
                 start_date=start_date,
                 end_date=end_date,
                 adjust="qfq",
             )
             if df is not None and not df.empty:
-                # 统一列名
-                df = df.rename(columns={
-                    "日期": "date", "开盘": "open", "收盘": "close",
-                    "最高": "high", "最低": "low", "成交量": "volume",
-                    "成交额": "amount",
-                })
+                cols = df.columns.tolist()
+                rename_map = {}
+                if "date" not in cols:
+                    rename_map["日期"] = "date"
+                for src, dst in [
+                    ("开盘价", "open"), ("收盘价", "close"), ("最高价", "high"), ("最低价", "low"),
+                    ("成交量", "volume"), ("成交额", "amount"),
+                ]:
+                    if src in cols:
+                        rename_map[src] = dst
+                if rename_map:
+                    df = df.rename(columns=rename_map)
                 df["date"] = pd.to_datetime(df["date"])
-                return df, "eastmoney"
+                return df, "sina"
         except Exception as e:
             last_error = e
             if attempt < max_retries - 1:
@@ -70,19 +107,17 @@ def fetch_stock_hist(stock_code, period="daily", start_date="", end_date="", max
     # ---- 源2: 腾讯（回退源） ----
     try:
         df = ak.stock_zh_a_hist_tx(
-            symbol=tx_symbol,
+            symbol=symbol,
             start_date=start_date,
             end_date=end_date,
             adjust="qfq",
         )
         if df is not None and not df.empty:
-            # 统一列名（腾讯源无 volume 字段）
             df = df.rename(columns={
                 "date": "date", "open": "open", "close": "close",
                 "high": "high", "low": "low", "amount": "amount",
             })
             df["date"] = pd.to_datetime(df["date"])
-            # 标记来源
             return df, "tencent"
     except Exception as e:
         pass
@@ -131,4 +166,3 @@ SALT = "fin_analysis_2024"
 def hash_password(password: str) -> str:
     """对密码进行 SHA256 哈希"""
     return hashlib.sha256((password + SALT).encode("utf-8")).hexdigest()
-

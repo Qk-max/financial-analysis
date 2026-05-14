@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-from utils.helpers import calc_ma, calc_rsi, fetch_stock_hist
+from utils.helpers import calc_ma, calc_rsi, fetch_stock_hist, get_stock_name
 
 st.set_page_config(
     page_title="股票分析 - 金融数据分析系统",
@@ -57,10 +57,14 @@ if search_btn and stock_code:
             if df is None or df.empty:
                 st.error("未获取到数据，请检查股票代码是否正确")
             else:
+                # 显示中文名称
+                stock_name = get_stock_name(stock_code)
+                st.subheader(f"{stock_name}（{stock_code}）")
+
                 # 数据源提示
-                source_label = "东方财富" if source == "eastmoney" else "腾讯证券"
+                source_label = "新浪财经" if source == "sina" else "腾讯证券"
                 if source == "tencent":
-                    st.info(f"数据来源: {source_label}（东方财富暂不可用）")
+                    st.info(f"数据来源: {source_label}（新浪财经暂不可用）")
                     if period != "日线":
                         st.warning("腾讯源仅支持日线数据")
 
@@ -72,7 +76,7 @@ if search_btn and stock_code:
                 if show_rsi:
                     calc_rsi(df)
 
-                # 成交量是否可用（腾讯源无成交量）
+                # 成交量是否可用（腾讯源可能无成交量）
                 has_volume = "volume" in df.columns and show_volume
 
                 # 绘制K线图
@@ -172,7 +176,7 @@ if search_btn and stock_code:
 
                 # 布局微调
                 fig.update_layout(
-                    title=f"{stock_code} 股票走势图",
+                    title=f"{stock_name}（{stock_code}）股票走势图",
                     xaxis_rangeslider_visible=False,
                     template="plotly_white",
                     height=600,

@@ -1,7 +1,7 @@
 """
 MySQL 数据库连接模块
 """
-from sqlalchemy import create_engine, text, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, text, Column, Integer, String, DateTime, ForeignKey, Float
 from sqlalchemy.orm import sessionmaker, declarative_base
 import pymysql
 import config
@@ -26,6 +26,17 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, comment="用户名")
     password = Column(String(100), nullable=False, comment="密码(SHA256)")
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), comment="注册时间")
+
+
+class UserStock(Base):
+    __tablename__ = "user_stocks"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, comment="用户ID")
+    stock_code = Column(String(10), nullable=False, comment="股票代码")
+    stock_name = Column(String(50), nullable=False, comment="股票名称")
+    buy_price = Column(Float, default=0.0, comment="买入价格")
+    shares = Column(Integer, default=100, comment="持仓股数")
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), comment="添加时间")
 
 
 # ==================== 工具函数 ====================

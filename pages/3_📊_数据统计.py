@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-from utils.helpers import fetch_stock_hist
+from utils.helpers import fetch_stock_hist, get_stock_name
 
 st.set_page_config(
     page_title="数据统计 - 金融数据分析系统",
@@ -45,8 +45,11 @@ if analyze_btn and stock_code:
             if df is None or df.empty:
                 st.error("未获取到数据，请检查股票代码")
             else:
+                stock_name = get_stock_name(stock_code)
+                st.subheader(f"{stock_name}（{stock_code}）")
+
                 if source == "tencent":
-                    st.info("数据来源: 腾讯证券（东方财富暂不可用）")
+                    st.info("数据来源: 腾讯证券（新浪财经暂不可用）")
 
                 df = df.sort_values("date").tail(days).copy()
 
@@ -104,7 +107,7 @@ if analyze_btn and stock_code:
                         )
                     )
                     fig1.update_layout(
-                        title="累计收益率曲线",
+                        title=f"{stock_name}（{stock_code}）累计收益率曲线",
                         template="plotly_white",
                         height=400,
                         yaxis_title="收益率 (%)",
@@ -125,7 +128,7 @@ if analyze_btn and stock_code:
                         )
                     )
                     fig2.update_layout(
-                        title="日收益率分布",
+                        title=f"{stock_name}（{stock_code}）日收益率分布",
                         template="plotly_white",
                         height=400,
                         xaxis_title="收益率 (%)",
@@ -150,7 +153,7 @@ if analyze_btn and stock_code:
                         )
                     )
                     fig3.update_layout(
-                        title="近20日涨跌幅",
+                        title=f"{stock_name}（{stock_code}）近20日涨跌幅",
                         template="plotly_white",
                         height=400,
                         xaxis_title="日期",
