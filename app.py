@@ -5,6 +5,7 @@ app.py - 金融数据分析系统入口（登录页）
 """
 import streamlit as st
 from database.mysql_conn import SessionLocal, test_connection, init_db, User
+from utils.database import ensure_game_scores_table, ensure_users_admin_column
 from utils.helpers import hash_password
 
 # ==================== 页面配置 ====================
@@ -22,6 +23,8 @@ if st.session_state.get("logged_in"):
 # ==================== 数据库初始化 ====================
 try:
     init_db()
+    ensure_game_scores_table()
+    ensure_users_admin_column()
 except Exception:
     pass
 
@@ -124,6 +127,7 @@ if auth_mode == "🔐 登录":
                                 st.session_state["logged_in"] = True
                                 st.session_state["username"] = username
                                 st.session_state["user_id"] = user.id
+                                st.session_state["is_admin"] = bool(user.is_admin)
                                 st.success("登录成功，正在跳转...")
                                 # 保存到 localStorage，用于游戏返回时恢复会话
                                 st.components.v1.html(f"""

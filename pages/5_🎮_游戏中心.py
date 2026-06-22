@@ -6,6 +6,7 @@ import pymysql
 import config
 from datetime import datetime
 from utils.helpers import hash_password
+from utils.database import ensure_game_scores_table
 
 st.set_page_config(
     page_title="游戏中心 - 金融数据分析系统",
@@ -25,6 +26,13 @@ def get_db():
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+# 确保游戏成绩表存在
+try:
+    ensure_game_scores_table()
+except Exception:
+    pass
 
 
 def save_score(game_type: str, username: str, score: float, higher_better: bool = True, max_tile: int = None):
@@ -141,12 +149,13 @@ if "game_type" in st.query_params:
         conn = get_db()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE username = %s", (save_username,))
+                cur.execute("SELECT id, is_admin FROM users WHERE username = %s", (save_username,))
                 user_row = cur.fetchone()
                 if user_row:
                     st.session_state["logged_in"] = True
                     st.session_state["username"] = save_username
                     st.session_state["user_id"] = user_row["id"]
+                    st.session_state["is_admin"] = bool(user_row["is_admin"])
         except Exception:
             pass
         finally:
@@ -177,12 +186,13 @@ if not st.session_state.get("logged_in"):
             conn = get_db()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT id FROM users WHERE username = %s", (recover_user,))
+                    cur.execute("SELECT id, is_admin FROM users WHERE username = %s", (recover_user,))
                     user_row = cur.fetchone()
                     if user_row:
                         st.session_state["logged_in"] = True
                         st.session_state["username"] = recover_user
                         st.session_state["user_id"] = user_row["id"]
+                        st.session_state["is_admin"] = bool(user_row["is_admin"])
                         st.query_params.clear()
                         st.rerun()
                     else:
@@ -219,6 +229,7 @@ if not st.session_state.get("logged_in"):
                                     st.session_state["logged_in"] = True
                                     st.session_state["username"] = recover_user
                                     st.session_state["user_id"] = user_row["id"]
+                                    st.session_state["is_admin"] = bool(user_row["is_admin"])
                                     st.query_params.clear()
                                     st.rerun()
                                 else:
@@ -289,8 +300,12 @@ def get_leaderboard(game_type: str, order_desc: bool = True):
 with st.sidebar:
     st.title("📊 金融数据分析")
     st.markdown(f"👤 **{username}**")
+    if st.session_state.get("is_admin"):
+        st.markdown("---")
+        if st.button("🔧 管理员后台", use_container_width=True):
+            st.switch_page("pages/6_🔧_管理员后台.py")
     if st.button("🚪 退出", use_container_width=True):
-        for key in ["logged_in", "username", "user_id"]:
+        for key in ["logged_in", "username", "user_id", "is_admin"]:
             st.session_state[key] = False if key == "logged_in" else ("" if key == "username" else None)
         st.components.v1.html("""
         <script>

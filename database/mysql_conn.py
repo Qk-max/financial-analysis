@@ -3,7 +3,6 @@ MySQL 数据库连接模块
 """
 from sqlalchemy import create_engine, text, Column, Integer, String, DateTime, ForeignKey, Float
 from sqlalchemy.orm import sessionmaker, declarative_base
-import pymysql
 import config
 
 # 创建数据库引擎
@@ -25,6 +24,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False, comment="用户名")
     password = Column(String(100), nullable=False, comment="密码(SHA256)")
+    is_admin = Column(Integer, default=0, nullable=False, comment="是否管理员 0=否 1=是")
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), comment="注册时间")
 
 

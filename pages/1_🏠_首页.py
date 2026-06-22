@@ -47,9 +47,14 @@ with st.sidebar:
     - 📈 **股票分析** — K线/均线/RSI
     - 📊 **数据统计** — 收益率/波动率
     - 👤 **用户管理** — 个人信息
-    - 🎮 **游戏中心** — 预留
+    - 🎮 **游戏中心** — 游戏排行榜
     """
     )
+    if st.session_state.get("is_admin"):
+        st.markdown("---")
+        st.markdown("### 🔧 系统管理")
+        if st.button("🔧 管理员后台", use_container_width=True):
+            st.switch_page("pages/6_🔧_管理员后台.py")
     st.markdown("---")
     st.caption("期末课设项目 | Powered by Streamlit")
 
