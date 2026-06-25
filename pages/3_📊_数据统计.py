@@ -1,12 +1,16 @@
 """
 数据统计模块 - 收益率分析、波动率分析、最大涨跌幅统计
 """
+import logging
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-from utils.helpers import fetch_stock_hist, get_stock_name
+from utils.helpers import fetch_stock_hist, get_stock_name, normalize_stock_code
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="数据统计 - 金融数据分析系统",
@@ -30,6 +34,10 @@ with st.sidebar:
     analyze_btn = st.button("📐 开始分析", type="primary", use_container_width=True)
 
 if analyze_btn and stock_code:
+    stock_code = normalize_stock_code(stock_code)
+    if not stock_code:
+        st.warning("请输入正确的6位A股代码")
+        st.stop()
     with st.spinner("正在获取并分析数据..."):
         try:
             end_date = datetime.now().strftime("%Y%m%d")
@@ -189,8 +197,9 @@ if analyze_btn and stock_code:
                     )
                     st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
-        except Exception as e:
-            st.error(f"获取数据出错: {e}")
+        except Exception:
+            logger.exception("数据统计行情获取失败")
+            st.error("数据获取失败，请稍后重试或检查股票代码")
             st.info("常见原因：① 网络不稳定（已自动重试3次）② 股票代码不存在 ③ 数据源暂时不可用")
 
 elif analyze_btn and not stock_code:

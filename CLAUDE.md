@@ -10,6 +10,9 @@ pip install -r requirements.txt
 
 # 启动应用（默认 http://localhost:8501）
 streamlit run app.py
+
+# 运行安全回归测试
+python -m pytest tests/ -v
 ```
 
 ## 架构概览
@@ -28,31 +31,36 @@ streamlit run app.py
 
 腾讯源**无 `volume` 字段**，仅含 `date/open/close/high/low/amount`。各页面在绘制成交量图前需检查 `"volume" in df.columns`。
 
+TLS 使用系统默认证书校验；SSL 错误会记录日志并直接回退到备选数据源，不重试。
+
 ### 股票名称缓存
 
 `get_stock_name()` 首次调用时通过 `ak.stock_zh_a_spot()` 批量拉取全量 A 股代码→名称映射，存入模块级 `_stock_name_cache` dict。同时缓存带前缀（sh/sz）和无前缀（6 位纯数字）两种 key，因此 O(1) 查找不需网络请求。
 
-### SSL 兼容处理
+### 密码存储
 
-`utils/helpers.py` 模块顶部设置了全局 SSL 忽略（`ssl._create_unverified_context`），并在导入 akShare 前执行。这是因为国内金融数据源（新浪、腾讯）的 HTTPS 证书在部分 Windows 环境下会导致 `RemoteDisconnected` 错误。任何新增的数据获取函数都应放在该模块中以确保 SSL 设置先生效。
+密码使用 **bcrypt** 自适应加盐哈希存储（`hash_password` / `verify_password`），每次哈希自动生成随机盐。`User.password` 列宽 `VARCHAR(255)`。旧版 SHA-256 固定盐哈希在用户登录时透明迁移为 bcrypt（`is_legacy_hash` / `needs_rehash`）。
+
+### 凭据管理
+
+数据库密码通过环境变量 `DB_PASSWORD` 注入，`config.py` 中无硬编码密码。`.env.example` 作为模板；`.env` 和 `config.py`（如含敏感值）已在 `.gitignore`。
+
+### 会话与授权
+
+- **会话**：使用 Streamlit 服务端 session_state（签名 Cookie）。连续 5 次登录失败后锁定当前会话 60 秒。
+- **授权**：管理员后台每次加载时从数据库复核当前用户的 `is_admin` 角色；不能删除当前管理员，也不能移除最后一个管理员。普通用户模块仅展示个人信息。
 
 ### 数据库模块
 
-- `database/mysql_conn.py` — SQLAlchemy ORM 引擎，`User` 和 `UserStock` 模型，`init_db()` 建表，`test_connection()` 健康检查
-- `utils/database.py` — 原生 pymysql 连接（`get_db_connection()`），用于游戏中心等需要参数化 SQL 的场景；`ensure_game_scores_table()` 建表
+- `database/mysql_conn.py` — SQLAlchemy ORM 引擎，`User` / `UserStock` 模型；`init_db()` 仅验证表结构，`test_connection()` 执行健康检查。建库建表仅由 `database/schema.local.sql` 的本地管理员副本执行。
 
 ### MySQL 可选运行
 
-用户模块页面（`pages/4_👤_用户模块.py`）在 MySQL 不可用时会优雅降级：展示错误提示但页面不崩溃，登录注册按钮在检测到数据库未连接时不会执行实际查询。`init_db()` 调用包裹了 try-except。
+用户模块页面在 MySQL 不可用或表结构未初始化时会展示错误提示，登录注册按钮不会执行实际查询。应用运行时不执行 DDL。
 
-### 游戏中心
+### 输入与输出安全
 
-`pages/5_🎮_游戏中心.py` 包含两个游戏，均通过 JavaScript 注入实现键盘方向键操控：
-
-- **贪吃蛇炒股** — 15×15 网格，吃到 💰 股价 +5%，吃到 💣 股价 -10%。JS `setInterval` 实现 280ms 自动踏步，方向键改变方向。`#snake-auto-move` 隐藏 div 标记模式。
-- **合成方块资产 2048** — 标准 2048 合并逻辑，通关/失败/手动结束均记录用时到排行榜。
-
-方向按钮渲染为 Streamlit button，JS 通过 `document.querySelectorAll('button')` 查找并 `.click()`。排行榜使用参数化 `%s` 查询，INSERT/UPDATE 仅在分数更高时更新。
+不要使用基于关键词的“SQL 注入/XSS 检测”模拟防护。用户名和股票代码使用格式白名单，密码使用统一策略；数据库访问使用 ORM；任何进入 `unsafe_allow_html=True` 的外部股票名称必须先用 `html.escape()` 转义。
 
 ### 页面独立性
 
@@ -60,4 +68,8 @@ streamlit run app.py
 
 ## 配置文件
 
-`config.py` 包含 MySQL 连接参数和数据库 URL 构造。修改数据库连接只需编辑此文件。当前默认值需要用户自行填写 `DB_PASSWORD`。
+`config.py` 通过 `os.getenv()` 读取环境变量，未设置时使用开发默认值。启动时若 `DB_PASSWORD` 为空会输出警告。`.env.example` 提供配置模板。
+
+## 安全测试
+
+`tests/test_security.py` 覆盖 bcrypt 哈希/迁移、配置无硬编码密码、输入格式、管理员鉴权、TLS 证书校验和已下线模块校验。修改安全相关代码后应运行测试验证。

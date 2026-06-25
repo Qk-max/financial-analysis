@@ -1,13 +1,18 @@
 """
 首页 - 我的股票持仓
 """
+import logging
+from html import escape
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 from database.mysql_conn import SessionLocal, init_db, UserStock
-from utils.helpers import get_stock_name, fetch_stock_hist
+from utils.helpers import get_stock_name, fetch_stock_hist, normalize_stock_code
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="首页 - 金融数据分析系统",
@@ -19,6 +24,7 @@ st.set_page_config(
 if not st.session_state.get("logged_in"):
     st.warning("请先登录")
     st.switch_page("app.py")
+    st.stop()
 
 try:
     init_db()
@@ -33,7 +39,7 @@ with st.sidebar:
 
     st.markdown(f"👤 **{st.session_state.get('username', '')}**")
     if st.button("🚪 退出", use_container_width=True):
-        for key in ["logged_in", "username", "user_id"]:
+        for key in ["logged_in", "username", "user_id", "is_admin"]:
             st.session_state[key] = False if key == "logged_in" else (
                 "" if key == "username" else None
             )
@@ -47,9 +53,13 @@ with st.sidebar:
     - 📈 **股票分析** — K线/均线/RSI
     - 📊 **数据统计** — 收益率/波动率
     - 👤 **用户管理** — 个人信息
-    - 🎮 **游戏中心** — 预留
     """
     )
+    if st.session_state.get("is_admin"):
+        st.markdown("---")
+        st.markdown("### 🔧 系统管理")
+        if st.button("🔧 管理员后台", use_container_width=True):
+            st.switch_page("pages/6_🔧_管理员后台.py")
     st.markdown("---")
     st.caption("期末课设项目 | Powered by Streamlit")
 
@@ -157,7 +167,7 @@ else:
 
             with col1:
                 st.markdown(
-                    f"**{row['股票名称']}**  "
+                    f"**{escape(str(row['股票名称']))}**  "
                     f"<span style='color:#888;font-size:0.85rem;'>{row['代码']}</span>",
                     unsafe_allow_html=True,
                 )
@@ -209,11 +219,14 @@ else:
                 if st.button("🗑️", key=f"del_{row['id']}", help="删除此股票"):
                     db = SessionLocal()
                     try:
-                        db.query(UserStock).filter(UserStock.id == row["id"]).delete()
+                        db.query(UserStock).filter(
+                            UserStock.id == row["id"], UserStock.user_id == user_id
+                        ).delete()
                         db.commit()
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"删除失败: {e}")
+                    except Exception:
+                        logger.exception("删除持仓失败")
+                        st.error("删除失败，请稍后重试")
                     finally:
                         db.close()
 
@@ -251,8 +264,8 @@ with col4:
     add_btn = st.button("➕ 添加", type="primary", use_container_width=True, key="add_btn")
 
 if add_btn:
-    new_code = new_code.strip().zfill(6)
-    if len(new_code) != 6 or not new_code.isdigit():
+    new_code = normalize_stock_code(new_code)
+    if not new_code:
         st.error("请输入正确的6位股票代码")
     elif new_price <= 0:
         st.warning("请输入买入价格")
@@ -279,9 +292,10 @@ if add_btn:
                 db.commit()
                 st.success(f"已添加：{stock_name}（{new_code}）")
                 st.rerun()
-        except Exception as e:
+        except Exception:
             db.rollback()
-            st.error(f"添加失败: {e}")
+            logger.exception("添加持仓失败")
+            st.error("添加失败，请稍后重试")
         finally:
             db.close()
 

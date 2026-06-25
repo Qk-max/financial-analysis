@@ -1,13 +1,17 @@
 """
 股票分析模块 - K线图、MA均线、RSI指标、成交量分析
 """
+import logging
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-from utils.helpers import calc_ma, calc_rsi, fetch_stock_hist, get_stock_name
+from utils.helpers import calc_ma, calc_rsi, fetch_stock_hist, get_stock_name, normalize_stock_code
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="股票分析 - 金融数据分析系统",
@@ -39,6 +43,10 @@ with st.sidebar:
 
 # 主体区域
 if search_btn and stock_code:
+    stock_code = normalize_stock_code(stock_code)
+    if not stock_code:
+        st.warning("请输入正确的6位A股代码")
+        st.stop()
     with st.spinner("正在获取数据..."):
         try:
             # 计算日期范围
@@ -202,8 +210,9 @@ if search_btn and stock_code:
                         hide_index=True,
                     )
 
-        except Exception as e:
-            st.error(f"获取数据出错: {e}")
+        except Exception:
+            logger.exception("股票分析数据获取失败")
+            st.error("数据获取失败，请稍后重试或检查股票代码")
             st.info("常见原因：① 网络不稳定（已自动重试3次）② 股票代码不存在 ③ 数据源暂时不可用")
             st.info("建议：请稍后重试，或尝试其他股票代码（如 000001、600519）")
 

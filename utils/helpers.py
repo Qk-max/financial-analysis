@@ -2,29 +2,38 @@
 通用工具函数
 """
 import time
-import ssl
-import warnings
+import logging
+import re
 import pandas as pd
 
-# ==================== 全局 SSL 兼容配置 ====================
-# 必须在任何网络请求前执行，解决国内数据源证书/连接问题
-warnings.filterwarnings("ignore")
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except Exception:
-    pass
+logger = logging.getLogger(__name__)
 
-# 强制使用 TLS 1.2（兼容部分国内服务器）
-import urllib3
-urllib3.disable_warnings()
-try:
-    from requests.packages.urllib3.util.ssl_ import create_urllib3_context
-    ctx = create_urllib3_context()
-    ctx.load_default_certs()
-    ctx.set_alpn_protocols([])
-except Exception:
-    pass
-# ==================== SSL 配置结束 ====================
+
+MIN_PASSWORD_LENGTH = 8
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fff]{2,20}$")
+_STOCK_CODE_PATTERN = re.compile(r"^\d{6}$")
+
+
+def validate_username(username: str) -> tuple[bool, str]:
+    """校验用户名，避免将任意显示层输入带入管理操作。"""
+    if not isinstance(username, str) or not _USERNAME_PATTERN.fullmatch(username):
+        return False, "用户名需为 2-20 个中文、字母、数字或下划线"
+    return True, ""
+
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """提供一致的密码策略；密码哈希仍由 bcrypt 负责。"""
+    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"密码至少 {MIN_PASSWORD_LENGTH} 个字符"
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return False, "密码需同时包含字母和数字"
+    return True, ""
+
+
+def normalize_stock_code(stock_code: str) -> str | None:
+    """仅接受 6 位 A 股代码，拒绝其他输入后再请求第三方数据源。"""
+    normalized = str(stock_code or "").strip().zfill(6)
+    return normalized if _STOCK_CODE_PATTERN.fullmatch(normalized) else None
 
 
 # 内存缓存股票代码→名称映射
@@ -64,9 +73,10 @@ def fetch_stock_hist(stock_code, period="daily", start_date="", end_date="", max
     股票历史数据获取
 
     优先使用新浪财经源（数据字段更全），失败则回退到腾讯源。
-    返回 (DataFrame, source_name)
+    使用系统默认 TLS 证书校验。返回 (DataFrame, source_name)
     """
     import akshare as ak
+    from requests.exceptions import SSLError
 
     # 判断市场前缀
     if stock_code.startswith("6") or stock_code.startswith("9"):
@@ -99,8 +109,13 @@ def fetch_stock_hist(stock_code, period="daily", start_date="", end_date="", max
                     df = df.rename(columns=rename_map)
                 df["date"] = pd.to_datetime(df["date"])
                 return df, "sina"
+        except SSLError as e:
+            last_error = e
+            logger.error("新浪数据源 TLS 证书校验失败（系统证书可能过期或受损）: %s", e)
+            break  # TLS 错误不重试，直接回退
         except Exception as e:
             last_error = e
+            logger.warning("新浪数据源请求失败（第 %d/%d 次）: %s", attempt + 1, max_retries, e)
             if attempt < max_retries - 1:
                 time.sleep((attempt + 1) * 1.5)
 
@@ -119,8 +134,10 @@ def fetch_stock_hist(stock_code, period="daily", start_date="", end_date="", max
             })
             df["date"] = pd.to_datetime(df["date"])
             return df, "tencent"
+    except SSLError as e:
+        logger.error("腾讯数据源 TLS 证书校验失败: %s", e)
     except Exception as e:
-        pass
+        logger.warning("腾讯数据源请求失败: %s", e)
 
     raise last_error or RuntimeError("数据获取失败：所有数据源均不可用")
 
@@ -159,10 +176,40 @@ def calc_rsi(df, period=14):
 
 # ==================== 密码哈希工具 ====================
 import hashlib
+import bcrypt
 
-SALT = "fin_analysis_2024"
+# 旧版固定盐（仅用于迁移期间识别老密码；绝不用于新哈希）
+_OLD_SALT = "fin_analysis_2024"
 
 
 def hash_password(password: str) -> str:
-    """对密码进行 SHA256 哈希"""
-    return hashlib.sha256((password + SALT).encode("utf-8")).hexdigest()
+    """使用 bcrypt 对密码进行自适应加盐哈希（自动生成随机盐）"""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """
+    验证密码是否匹配。
+    支持 bcrypt 哈希和旧版 SHA-256 哈希（透明迁移）。
+    返回 (is_valid, needs_rehash) 元组。
+    """
+    # bcrypt 哈希以 $2b$ 或 $2a$ 开头
+    if stored_hash.startswith("$2"):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+        except Exception:
+            return False
+
+    # 兼容旧版 SHA-256 固定盐哈希（迁移期）
+    old_hash = hashlib.sha256((password + _OLD_SALT).encode("utf-8")).hexdigest()
+    return old_hash == stored_hash
+
+
+def is_legacy_hash(stored_hash: str) -> bool:
+    """判断是否为旧版 SHA-256 哈希（需要迁移）"""
+    return not stored_hash.startswith("$2")
+
+
+def needs_rehash(stored_hash: str) -> bool:
+    """检查密码哈希是否需要升级（旧版 SHA-256 → bcrypt）"""
+    return is_legacy_hash(stored_hash)

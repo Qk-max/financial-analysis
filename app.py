@@ -1,11 +1,42 @@
 """
 app.py - 金融数据分析系统入口（登录页）
 
-必须先登录才能进入系统。密码使用 SHA256 哈希存储。
+必须先登录才能进入系统。密码使用 bcrypt 自适应加盐哈希存储。
 """
+import logging
+import time
+
 import streamlit as st
 from database.mysql_conn import SessionLocal, test_connection, init_db, User
-from utils.helpers import hash_password
+from utils.audit import audit_event
+from utils.helpers import (
+    hash_password,
+    verify_password,
+    needs_rehash,
+    validate_password,
+    validate_username,
+)
+
+logger = logging.getLogger(__name__)
+MAX_LOGIN_FAILURES = 5
+LOGIN_LOCK_SECONDS = 60
+
+
+def login_is_locked() -> bool:
+    return time.time() < st.session_state.get("login_locked_until", 0)
+
+
+def record_login_failure() -> None:
+    failures = st.session_state.get("login_failures", 0) + 1
+    st.session_state["login_failures"] = failures
+    if failures >= MAX_LOGIN_FAILURES:
+        st.session_state["login_locked_until"] = time.time() + LOGIN_LOCK_SECONDS
+        st.session_state["login_failures"] = 0
+
+
+def clear_login_failures() -> None:
+    st.session_state.pop("login_failures", None)
+    st.session_state.pop("login_locked_until", None)
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -61,7 +92,7 @@ if db_ok:
     )
 else:
     st.markdown(
-        f'<div class="db-status-badge">🔴 数据库未连接: {db_msg}</div>',
+        '<div class="db-status-badge">🔴 数据库暂时不可用</div>',
         unsafe_allow_html=True,
     )
 
@@ -105,40 +136,40 @@ if auth_mode == "🔐 登录":
             if submitted:
                 if not db_ok:
                     st.error("数据库未连接，请确保 MySQL 已启动")
+                elif login_is_locked():
+                    st.error("登录尝试过于频繁，请 1 分钟后再试")
                 elif not username or not password:
                     st.warning("请填写用户名和密码")
                 else:
                     with st.spinner("正在登录..."):
                         db = SessionLocal()
                         try:
-                            hashed = hash_password(password)
                             user = (
                                 db.query(User)
-                                .filter(
-                                    User.username == username,
-                                    User.password == hashed,
-                                )
+                                .filter(User.username == username)
                                 .first()
                             )
-                            if user:
+                            if user and verify_password(password, user.password):
+                                # 旧版 SHA-256 哈希自动迁移为 bcrypt
+                                if needs_rehash(user.password):
+                                    user.password = hash_password(password)
+                                    db.commit()
                                 st.session_state["logged_in"] = True
                                 st.session_state["username"] = username
                                 st.session_state["user_id"] = user.id
+                                st.session_state["is_admin"] = bool(user.is_admin)
+                                clear_login_failures()
+                                audit_event("login", actor_user_id=user.id)
                                 st.success("登录成功，正在跳转...")
-                                # 保存到 localStorage，用于游戏返回时恢复会话
-                                st.components.v1.html(f"""
-                                <script>
-                                localStorage.setItem('fa_username', '{username}');
-                                localStorage.setItem('fa_logged_in', '1');
-                                localStorage.setItem('fa_timestamp', Date.now().toString());
-                                </script>
-                                """, height=0)
                                 redirect = st.session_state.pop("redirect_after_login", None)
                                 st.switch_page(redirect or "pages/1_🏠_首页.py")
                             else:
+                                record_login_failure()
+                                audit_event("login", outcome="failure")
                                 st.error("用户名或密码错误")
-                        except Exception as e:
-                            st.error(f"登录异常: {e}")
+                        except Exception:
+                            logger.exception("登录处理失败")
+                            st.error("登录失败，请稍后重试")
                         finally:
                             db.close()
 
@@ -152,7 +183,7 @@ elif auth_mode == "📝 注册":
                 "用户名", placeholder="2-20个字符", key="reg_user"
             )
             reg_pass = st.text_input(
-                "密码", type="password", placeholder="至少3个字符", key="reg_pass"
+                "密码", type="password", placeholder="至少8个字符，含字母和数字", key="reg_pass"
             )
             reg_pass2 = st.text_input(
                 "确认密码", type="password", placeholder="请再次输入密码", key="reg_pass2"
@@ -167,12 +198,10 @@ elif auth_mode == "📝 注册":
                     st.error("数据库未连接，请确保 MySQL 已启动")
                 elif not reg_user or not reg_pass:
                     st.warning("请填写完整信息")
-                elif len(reg_user) < 2 or len(reg_user) > 20:
-                    st.warning("用户名需 2-20 个字符")
-                elif " " in reg_user:
-                    st.warning("用户名不能包含空格")
-                elif len(reg_pass) < 3:
-                    st.warning("密码至少 3 个字符")
+                elif not validate_username(reg_user)[0]:
+                    st.warning(validate_username(reg_user)[1])
+                elif not validate_password(reg_pass)[0]:
+                    st.warning(validate_password(reg_pass)[1])
                 elif reg_pass != reg_pass2:
                     st.warning("两次密码不一致")
                 else:
@@ -193,12 +222,14 @@ elif auth_mode == "📝 注册":
                                 )
                                 db.add(user)
                                 db.commit()
+                                audit_event("register", actor_user_id=user.id)
                                 st.session_state["reg_success"] = True
                                 st.success("注册成功！请切换到登录页签进行登录。")
                                 st.rerun()
-                        except Exception as e:
+                        except Exception:
                             db.rollback()
-                            st.error(f"注册失败: {e}")
+                            logger.exception("注册处理失败")
+                            st.error("注册失败，请稍后重试")
                         finally:
                             db.close()
 
@@ -206,5 +237,5 @@ elif auth_mode == "📝 注册":
 st.markdown("---")
 st.caption(
     "提示：请确保 MySQL 已启动，并在 config.py 中配置正确的连接信息。"
-    "密码采用 SHA256 加密存储。"
+    "密码使用 bcrypt 自适应加盐哈希存储。"
 )

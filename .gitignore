@@ -24,3 +24,18 @@ Thumbs.db
 
 # Env
 .env
+
+# Local audit logs
+logs/
+
+# Local database bootstrap copy containing an application password
+database/*.private.sql
+
+# Local MySQL distribution and one-off maintenance scripts
+mysql/
+mysql.zip
+server_analysis.py
+update_passwords.py
+
+# Historical nested working copy; it is not part of the published application.
+financial-analysis/

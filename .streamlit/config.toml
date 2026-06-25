@@ -1,2 +1,7 @@
 [server]
-enableStaticServing = true
+enableStaticServing = false
+address = "127.0.0.1"
+port = 8501
+headless = true
+enableCORS = true
+enableXsrfProtection = true
